@@ -341,11 +341,15 @@ public class BedrockLevelWriter implements LevelWriter, BedrockReaderWriter {
      * @throws Exception if it failed to write the map.
      */
     protected void writeMap(ChunkerMap chunkerMap) throws Exception {
-        CompoundTag mapData = prepareMap(chunkerMap);
+        try {
+            CompoundTag mapData = prepareMap(chunkerMap);
 
-        // Write to DB
-        byte[] value = Tag.writeBedrockNBT(mapData);
-        database.put(("map_" + chunkerMap.getId()).getBytes(StandardCharsets.UTF_8), value);
+            // Write to DB
+            byte[] value = Tag.writeBedrockNBT(mapData);
+            database.put(("map_" + chunkerMap.getId()).getBytes(StandardCharsets.UTF_8), value);
+        } finally {
+            chunkerMap.releasePayload();
+        }
     }
 
     /**

@@ -436,22 +436,26 @@ public class BedrockLevelReader implements LevelReader, BedrockReaderWriter {
             List<Task<ChunkerMap>> tasks = new ArrayList<>();
 
             // Iterate through the database for maps
-            try (DBIterator iterator = database.iterator()) {
+            try (DBIterator iterator = database.iterator(new ReadOptions().fillCache(false))) {
                 iterator.seek(LevelDBKey.MAP_PREFIX); // Skip to the key
 
                 while (iterator.hasNext()) {
                     Map.Entry<byte[], byte[]> entry = iterator.next();
 
                     // Ensure it starts with the map key
-                    if (!LevelDBKey.startsWith(entry.getKey(), LevelDBKey.MAP_PREFIX)) continue;
+                    if (!LevelDBKey.startsWith(entry.getKey(), LevelDBKey.MAP_PREFIX)) break;
 
                     // Attempt to parse the mapID from the key
                     try {
                         String suffix = LevelDBKey.extractSuffix(entry.getKey(), LevelDBKey.MAP_PREFIX);
                         long mapID = Long.parseLong(suffix);
 
-                        // Create the read task
-                        tasks.add(Task.async("Parsing map", TaskWeight.NORMAL, () -> parseMap(mapID, entry.getValue())));
+                        // The payload loader outlives this iterator entry, so retain our own stable key bytes.
+                        byte[] key = entry.getKey().clone();
+                        byte[] value = entry.getValue();
+
+                        // Parse metadata now, but defer the 64 KiB pixel payload until the output writer needs it.
+                        tasks.add(Task.async("Parsing map", TaskWeight.NORMAL, () -> parseMap(mapID, key, value)));
                     } catch (Exception e) {
                         converter.logNonFatalException(e);
                     }
@@ -478,11 +482,12 @@ public class BedrockLevelReader implements LevelReader, BedrockReaderWriter {
      * Parse a map from the ID and NBT encoded data.
      *
      * @param id   the ID of a map.
+     * @param key  the LevelDB key used to reload the large payload on demand.
      * @param data the NBT as a byte array.
      * @return a parsed map otherwise null if it failed to parse.
      */
     @Nullable
-    protected ChunkerMap parseMap(long id, byte[] data) {
+    protected ChunkerMap parseMap(long id, byte[] key, byte[] data) {
         try {
             // Read the data
             CompoundTag mapCompound = Objects.requireNonNull(Tag.readBedrockNBT(data));
@@ -501,14 +506,24 @@ public class BedrockLevelReader implements LevelReader, BedrockReaderWriter {
                     mapCompound.getInt("zCenter", 0),
                     mapCompound.getByte("unlimitedTracking", (byte) 0) != 0,
                     mapCompound.getByte("mapLocked", (byte) 0) != 0,
-                    mapCompound.getByteArray("colors", null),
-                    resolvers.converter().shouldAllowNBTCopying() ? mapCompound : null
+                    () -> loadMapPayload(key)
             );
 
         } catch (Exception e) {
             converter.logNonFatalException(e);
             return null;
         }
+    }
+
+    private ChunkerMap.Payload loadMapPayload(byte[] key) throws IOException {
+        byte[] data = database.get(key);
+        if (data == null) return new ChunkerMap.Payload(null, null);
+
+        CompoundTag mapCompound = Objects.requireNonNull(Tag.readBedrockNBT(data));
+        return new ChunkerMap.Payload(
+                mapCompound.getByteArray("colors", null),
+                resolvers.converter().shouldAllowNBTCopying() ? mapCompound : null
+        );
     }
 
     static boolean isColumnKey(byte[] key) {
