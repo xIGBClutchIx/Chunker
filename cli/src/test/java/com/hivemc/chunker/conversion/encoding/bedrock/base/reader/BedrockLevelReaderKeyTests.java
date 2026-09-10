@@ -16,21 +16,21 @@ public class BedrockLevelReaderKeyTests {
 
     @Test
     public void testCurrentColumnKeysAreAccepted() {
-        assertTrue(BedrockLevelReader.isColumnKey(LevelDBKey.key(Dimension.OVERWORLD, POSITION, LevelDBChunkType.DATA_3D)));
-        assertTrue(BedrockLevelReader.isColumnKey(LevelDBKey.key(Dimension.NETHER, POSITION, LevelDBChunkType.DATA_3D)));
-        assertTrue(BedrockLevelReader.isColumnKey(LevelDBKey.key(Dimension.OVERWORLD, POSITION, LevelDBChunkType.BLOCK_ENTITY)));
-        assertTrue(BedrockLevelReader.isColumnKey(LevelDBKey.key(Dimension.OVERWORLD, POSITION, LevelDBChunkType.ENTITY)));
+        assertTrue(LevelDBKey.isColumnKey(LevelDBKey.key(Dimension.OVERWORLD, POSITION, LevelDBChunkType.DATA_3D)));
+        assertTrue(LevelDBKey.isColumnKey(LevelDBKey.key(Dimension.NETHER, POSITION, LevelDBChunkType.DATA_3D)));
+        assertTrue(LevelDBKey.isColumnKey(LevelDBKey.key(Dimension.OVERWORLD, POSITION, LevelDBChunkType.BLOCK_ENTITY)));
+        assertTrue(LevelDBKey.isColumnKey(LevelDBKey.key(Dimension.OVERWORLD, POSITION, LevelDBChunkType.ENTITY)));
     }
 
     @Test
     public void testSubChunkTypePrecedesYCoordinate() {
-        assertTrue(BedrockLevelReader.isColumnKey(LevelDBKey.key(
+        assertTrue(LevelDBKey.isColumnKey(LevelDBKey.key(
                 Dimension.OVERWORLD,
                 POSITION,
                 (byte) 0,
                 LevelDBChunkType.SUB_CHUNK_PREFIX
         )));
-        assertTrue(BedrockLevelReader.isColumnKey(LevelDBKey.key(
+        assertTrue(LevelDBKey.isColumnKey(LevelDBKey.key(
                 Dimension.NETHER,
                 POSITION,
                 (byte) -4,
@@ -40,9 +40,9 @@ public class BedrockLevelReaderKeyTests {
 
     @Test
     public void testNonColumnKeysAreRejected() {
-        assertFalse(BedrockLevelReader.isColumnKey("map_123456789".getBytes(StandardCharsets.UTF_8)));
-        assertFalse(BedrockLevelReader.isColumnKey(LevelDBKey.LOCAL_PLAYER));
-        assertFalse(BedrockLevelReader.isColumnKey("thirteenbytes!".getBytes(StandardCharsets.UTF_8)));
-        assertFalse(BedrockLevelReader.isColumnKey(LevelDBKey.key(Dimension.OVERWORLD, POSITION, LevelDBChunkType.VERSION)));
+        assertFalse(LevelDBKey.isColumnKey("map_123456789".getBytes(StandardCharsets.UTF_8)));
+        assertFalse(LevelDBKey.isColumnKey(LevelDBKey.LOCAL_PLAYER));
+        assertFalse(LevelDBKey.isColumnKey("thirteenbytes!".getBytes(StandardCharsets.UTF_8)));
+        assertFalse(LevelDBKey.isColumnKey(LevelDBKey.key(Dimension.OVERWORLD, POSITION, LevelDBChunkType.VERSION)));
     }
 }

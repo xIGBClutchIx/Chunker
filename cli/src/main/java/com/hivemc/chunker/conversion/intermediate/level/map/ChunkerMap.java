@@ -10,7 +10,6 @@ import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.IOException;
 import java.util.Comparator;
-import java.util.Objects;
 
 /**
  * In-game item map with bytes of the rendered image.
@@ -35,27 +34,6 @@ public class ChunkerMap {
 
     @Nullable
     private transient CompoundTag originalNBT;
-
-    @Nullable
-    private transient PayloadLoader payloadLoader;
-    private transient volatile boolean payloadLoaded = true;
-
-    /**
-     * Loads the potentially large pixel and original-NBT payload for a map on demand.
-     */
-    @FunctionalInterface
-    public interface PayloadLoader {
-        Payload load() throws Exception;
-    }
-
-    /**
-     * The large, releasable portion of an in-game map.
-     *
-     * @param bytes       the RGBA pixel bytes.
-     * @param originalNBT the original map NBT when NBT copying is enabled.
-     */
-    public record Payload(byte @Nullable [] bytes, @Nullable CompoundTag originalNBT) {
-    }
 
     /**
      * Create a new map.
@@ -114,36 +92,6 @@ public class ChunkerMap {
         this.unlimitedTracking = unlimitedTracking;
         this.locked = locked;
         this.bytes = bytes;
-    }
-
-    /**
-     * Create a map whose large payload is loaded only when a writer needs it.
-     *
-     * @param originalId        the original ID of the map before conversion.
-     * @param id                the ID used in-game.
-     * @param width             the map width.
-     * @param height            the map height.
-     * @param scale             the map scale.
-     * @param dimension         the map dimension.
-     * @param xCenter           the X center.
-     * @param zCenter           the Z center.
-     * @param unlimitedTracking whether edge tracking is enabled.
-     * @param locked            whether the map is locked.
-     * @param payloadLoader     loader for the pixel and original-NBT payload.
-     */
-    public ChunkerMap(long originalId, long id, int width, int height, byte scale, Dimension dimension, int xCenter, int zCenter, boolean unlimitedTracking, boolean locked, PayloadLoader payloadLoader) {
-        this.originalId = originalId;
-        this.id = id;
-        this.width = width;
-        this.height = height;
-        this.scale = scale;
-        this.dimension = dimension;
-        this.xCenter = xCenter;
-        this.zCenter = zCenter;
-        this.unlimitedTracking = unlimitedTracking;
-        this.locked = locked;
-        this.payloadLoader = Objects.requireNonNull(payloadLoader, "payloadLoader");
-        payloadLoaded = false;
     }
 
     /**
@@ -324,7 +272,6 @@ public class ChunkerMap {
      * @return the array of bytes.
      */
     public byte @Nullable [] getBytes() {
-        loadPayload();
         return bytes;
     }
 
@@ -334,7 +281,6 @@ public class ChunkerMap {
      * @param bytes the RGBA maps for the map, which should be getWidth() * getHeight() * 4 in size.
      */
     public void setBytes(byte @Nullable [] bytes) {
-        loadPayload();
         this.bytes = bytes;
     }
 
@@ -346,10 +292,6 @@ public class ChunkerMap {
      */
     public void loadImage(File file) throws IOException {
         if (!file.exists()) throw new IllegalArgumentException("Could not find map file " + file.getName());
-
-        // Preserve any deferred original NBT and prevent a later getter from replacing this image
-        // with the original deferred pixel payload.
-        loadPayload();
 
         // Read the image
         BufferedImage inputImage = ImageIO.read(file);
@@ -392,7 +334,6 @@ public class ChunkerMap {
      */
     @Nullable
     public CompoundTag getOriginalNBT() {
-        loadPayload();
         return originalNBT;
     }
 
@@ -402,37 +343,6 @@ public class ChunkerMap {
      * @param originalNBT the original data.
      */
     public void setOriginalNBT(@Nullable CompoundTag originalNBT) {
-        loadPayload();
         this.originalNBT = originalNBT;
-    }
-
-    /**
-     * Release pixel and original-NBT data after the output writer has persisted the map.
-     * Map metadata remains available for item-ID resolution during column conversion.
-     */
-    public synchronized void releasePayload() {
-        bytes = null;
-        originalNBT = null;
-        payloadLoader = null;
-        payloadLoaded = true;
-    }
-
-    private void loadPayload() {
-        if (payloadLoaded) return;
-
-        synchronized (this) {
-            if (payloadLoaded) return;
-
-            PayloadLoader loader = Objects.requireNonNull(payloadLoader, "Map payload loader was released before loading");
-            try {
-                Payload payload = Objects.requireNonNull(loader.load(), "Map payload loader returned null");
-                bytes = payload.bytes();
-                originalNBT = payload.originalNBT();
-                payloadLoader = null;
-                payloadLoaded = true;
-            } catch (Exception e) {
-                throw new IllegalStateException("Failed to load map payload for map " + id, e);
-            }
-        }
     }
 }

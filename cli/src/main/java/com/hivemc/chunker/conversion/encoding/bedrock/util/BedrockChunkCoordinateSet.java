@@ -50,9 +50,23 @@ public final class BedrockChunkCoordinateSet extends AbstractSet<ChunkCoordPair>
     }
 
     @Override
+    public boolean remove(Object value) {
+        if (!contains(value)) return false;
+        ChunkCoordPair position = (ChunkCoordPair) value;
+        chunks.clear(localIndex(position.chunkX(), position.chunkZ()));
+        return true;
+    }
+
+    @Override
+    public void clear() {
+        chunks.clear();
+    }
+
+    @Override
     public Iterator<ChunkCoordPair> iterator() {
         return new Iterator<>() {
             private int next = chunks.nextSetBit(0);
+            private int lastReturned = -1;
 
             @Override
             public boolean hasNext() {
@@ -64,8 +78,16 @@ public final class BedrockChunkCoordinateSet extends AbstractSet<ChunkCoordPair>
                 if (next < 0) throw new NoSuchElementException();
 
                 int current = next;
+                lastReturned = current;
                 next = chunks.nextSetBit(current + 1);
                 return region.getChunk(current >>> 5, current & 31);
+            }
+
+            @Override
+            public void remove() {
+                if (lastReturned < 0) throw new IllegalStateException();
+                chunks.clear(lastReturned);
+                lastReturned = -1;
             }
         };
     }

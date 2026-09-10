@@ -22,7 +22,10 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Resolves column pre-transforms against immediate neighbours before submitting columns to the writer.
+ * Because of how certain parts of Minecraft work, some chunks may require data from other chunks, for example paintings
+ * need to be relocated to the right chunk.
+ * Because of this we must ensure that we pre-transform these chunks together then process them, this ensures entities
+ * are correctly relocated. This also allows you to do logic that requires neighbouring columns.
  *
  * <p>Columns are transformed independently once all four neighbouring positions are known. A transformed column is
  * held only until every adjacent column that can mutate it has also transformed. This local lifecycle prevents a chain

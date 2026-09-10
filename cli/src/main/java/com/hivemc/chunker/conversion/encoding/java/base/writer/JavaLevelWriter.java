@@ -182,22 +182,18 @@ public class JavaLevelWriter implements LevelWriter, JavaReaderWriter {
      * @throws Exception if it failed to write the map.
      */
     protected void writeMap(ChunkerMap chunkerMap) throws Exception {
-        try {
-            CompoundTag mapData = prepareMap(chunkerMap);
+        CompoundTag mapData = prepareMap(chunkerMap);
 
-            // Wrap the mapData in a compound tag
-            CompoundTag root = new CompoundTag(2);
-            root.put("data", mapData);
-            root.put("DataVersion", resolvers.dataVersion().getDataVersion());
+        // Wrap the mapData in a compound tag
+        CompoundTag root = new CompoundTag(2);
+        root.put("data", mapData);
+        root.put("DataVersion", resolvers.dataVersion().getDataVersion());
 
-            // Write to disk
-            Tag.writeGZipJavaNBT(new File(
-                    resolvers.javaLevelDirectoryResolver().getMapsDirectory(),
-                    getMapFileName(chunkerMap.getId())
-            ), root);
-        } finally {
-            chunkerMap.releasePayload();
-        }
+        // Write to disk
+        Tag.writeGZipJavaNBT(new File(
+                resolvers.javaLevelDirectoryResolver().getMapsDirectory(),
+                getMapFileName(chunkerMap.getId())
+        ), root);
     }
 
     @Override

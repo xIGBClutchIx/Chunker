@@ -24,7 +24,6 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class BedrockWorldReaderTests {
@@ -88,15 +87,44 @@ public class BedrockWorldReaderTests {
     }
 
     @Test
-    public void testRegionBatchSizeMustBePositive() {
-        assertThrows(IllegalArgumentException.class, () -> new BedrockWorldReader(
-                null,
-                new MockConverter(null),
-                null,
-                new LinkedHashMap<>(),
-                Dimension.OVERWORLD,
-                0
-        ));
+    public void testProgressIncludesRegionsWaitingForLaterBatches() throws Exception {
+        Map<RegionCoordPair, Set<ChunkCoordPair>> regions = new LinkedHashMap<>();
+        for (int x = 0; x < 6; x++) {
+            RegionCoordPair region = new RegionCoordPair(x, 0);
+            regions.put(region, Set.of(region.getChunk(0, 0)));
+        }
+        CountDownLatch secondBatchStarted = new CountDownLatch(2);
+        CountDownLatch release = new CountDownLatch(1);
+        BedrockWorldReader reader = new BedrockWorldReader(null, new MockConverter(null), null,
+                regions, Dimension.OVERWORLD, 2) {
+            @Override
+            public void readRegion(RegionCoordPair region, Set<ChunkCoordPair> columns, ColumnConversionHandler handler) {
+                if (region.regionX() == 2 || region.regionX() == 3) {
+                    secondBatchStarted.countDown();
+                    try {
+                        if (!release.await(10, TimeUnit.SECONDS)) throw new IllegalStateException("Timed out");
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        throw new IllegalStateException(e);
+                    }
+                }
+            }
+        };
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        Environment environment = Task.environment("Batch progress", 5, failure::set, null);
+        try {
+            reader.readRegions(regions, new RecordingHandler());
+            assertTrue(secondBatchStarted.await(10, TimeUnit.SECONDS));
+            // Two of six regions are complete; later batches must not disappear from progress.
+            assertTrue(environment.getProgress() > 0.30 && environment.getProgress() < 0.40,
+                    environment::getDetailedProgress);
+        } finally {
+            release.countDown();
+            environment.close();
+        }
+        environment.future().join();
+        assertNull(failure.get());
+        assertEquals(1D, environment.getProgress());
     }
 
     private static boolean hasNeighbor(RegionCoordPair current, Set<RegionCoordPair> visited) {

@@ -113,29 +113,25 @@ public class SettingsLevelWriter implements LevelWriter {
      * @throws Exception if an error happened during writing.
      */
     protected void writeMap(ChunkerMap map) throws Exception {
-        try {
-            BufferedImage image = new BufferedImage(map.getWidth(), map.getHeight(), BufferedImage.TYPE_INT_ARGB);
-            byte[] bytes = map.getBytes();
-            if (bytes == null) return; // Don't write empty maps
+        BufferedImage image = new BufferedImage(map.getWidth(), map.getHeight(), BufferedImage.TYPE_INT_ARGB);
+        byte[] bytes = map.getBytes();
+        if (bytes == null) return; // Don't write empty maps
 
-            // Loop through each pixel
-            int index = 0;
-            for (int y = 0; y < map.getHeight(); y++) {
-                for (int x = 0; x < map.getWidth(); x++) {
-                    // Convert from RGBA to ARGB
-                    image.setRGB(x, y,
-                            ((bytes[index + 3] & 0xFF) << 24) |
-                                    ((bytes[index] & 0xFF) << 16) |
-                                    ((bytes[index + 1] & 0xFF) << 8) |
-                                    ((bytes[index + 2] & 0xFF))
-                    );
-                    index += 4;
-                }
+        // Loop through each pixel
+        int index = 0;
+        for (int y = 0; y < map.getHeight(); y++) {
+            for (int x = 0; x < map.getWidth(); x++) {
+                // Convert from RGBA to ARGB
+                image.setRGB(x, y,
+                        ((bytes[index + 3] & 0xFF) << 24) |
+                                ((bytes[index] & 0xFF) << 16) |
+                                ((bytes[index + 1] & 0xFF) << 8) |
+                                ((bytes[index + 2] & 0xFF))
+                );
+                index += 4;
             }
-            // Write file
-            ImageIO.write(image, "png", new File(outputFolder, map.getId() + ".png"));
-        } finally {
-            map.releasePayload();
         }
+        // Write file
+        ImageIO.write(image, "png", new File(outputFolder, map.getId() + ".png"));
     }
 }

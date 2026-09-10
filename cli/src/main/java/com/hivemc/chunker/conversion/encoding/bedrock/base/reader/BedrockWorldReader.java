@@ -15,7 +15,6 @@ import com.hivemc.chunker.scheduling.task.TaskWeight;
 import it.unimi.dsi.fastutil.objects.ObjectOpenHashSet;
 import org.iq80.leveldb.DB;
 
-import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Iterator;
@@ -27,8 +26,8 @@ import java.util.Set;
  * A reader for Bedrock dimensions.
  */
 public class BedrockWorldReader implements WorldReader {
-    static final int MAX_IN_FLIGHT_REGIONS = 4;
-    static final Comparator<RegionCoordPair> REGION_ORDER = Comparator
+    public static final int MAX_IN_FLIGHT_REGIONS = 4;
+    public static final Comparator<RegionCoordPair> REGION_ORDER = Comparator
             .comparingInt(RegionCoordPair::regionX)
             .thenComparingInt(RegionCoordPair::regionZ);
     protected final BedrockResolvers resolvers;
@@ -124,7 +123,10 @@ public class BedrockWorldReader implements WorldReader {
         }
 
         if (orderedRegions.hasNext()) {
-            Task.join(batch).then("Scheduling next region batch", TaskWeight.NONE,
+            // Reserve the same reading/flushing weight for every region still waiting to be scheduled.
+            int remainingWeight = Math.toIntExact((long) regions.size()
+                    * (TaskWeight.NORMAL.getWeight() + TaskWeight.MEDIUM.getWeight()));
+            Task.join(batch).then("Scheduling next region batch", new TaskWeight(remainingWeight),
                     () -> scheduleNextRegionBatch(orderedRegions, regions, columnConversionHandler));
         }
     }
@@ -133,35 +135,27 @@ public class BedrockWorldReader implements WorldReader {
      * Order regions as a breadth-first walk over each connected component. This keeps the boundary between processed
      * and unprocessed regions compact, which limits the number of full columns retained for neighbour pre-transforms.
      */
-    static List<RegionCoordPair> orderRegions(Set<RegionCoordPair> regions) {
+    protected static List<RegionCoordPair> orderRegions(Set<RegionCoordPair> regions) {
         List<RegionCoordPair> seeds = new ArrayList<>(regions);
         seeds.sort(REGION_ORDER);
 
         Set<RegionCoordPair> remaining = new ObjectOpenHashSet<>(regions);
         List<RegionCoordPair> ordered = new ArrayList<>(regions.size());
-        ArrayDeque<RegionCoordPair> pending = new ArrayDeque<>();
 
         for (RegionCoordPair seed : seeds) {
             if (!remaining.remove(seed)) continue;
-            pending.add(seed);
+            int next = ordered.size();
+            ordered.add(seed);
 
-            while (!pending.isEmpty()) {
-                RegionCoordPair current = pending.removeFirst();
-                ordered.add(current);
+            while (next < ordered.size()) {
+                RegionCoordPair current = ordered.get(next++);
 
                 for (int offsetZ = -1; offsetZ <= 1; offsetZ++) {
                     for (int offsetX = -1; offsetX <= 1; offsetX++) {
                         if (offsetX == 0 && offsetZ == 0) continue;
 
-                        long neighborX = (long) current.regionX() + offsetX;
-                        long neighborZ = (long) current.regionZ() + offsetZ;
-                        if (neighborX < Integer.MIN_VALUE || neighborX > Integer.MAX_VALUE
-                                || neighborZ < Integer.MIN_VALUE || neighborZ > Integer.MAX_VALUE) {
-                            continue;
-                        }
-
-                        RegionCoordPair neighbor = new RegionCoordPair((int) neighborX, (int) neighborZ);
-                        if (remaining.remove(neighbor)) pending.addLast(neighbor);
+                        RegionCoordPair neighbor = new RegionCoordPair(current.regionX() + offsetX, current.regionZ() + offsetZ);
+                        if (remaining.remove(neighbor)) ordered.add(neighbor);
                     }
                 }
             }

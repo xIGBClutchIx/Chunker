@@ -6,7 +6,6 @@ import com.hivemc.chunker.conversion.encoding.base.reader.LevelReader;
 import com.hivemc.chunker.conversion.encoding.bedrock.base.BedrockReaderWriter;
 import com.hivemc.chunker.conversion.encoding.bedrock.base.resolver.BedrockResolvers;
 import com.hivemc.chunker.conversion.encoding.bedrock.util.BedrockChunkCoordinateSet;
-import com.hivemc.chunker.conversion.encoding.bedrock.util.LevelDBChunkType;
 import com.hivemc.chunker.conversion.encoding.bedrock.util.LevelDBKey;
 import com.hivemc.chunker.conversion.handlers.LevelConversionHandler;
 import com.hivemc.chunker.conversion.handlers.WorldConversionHandler;
@@ -135,15 +134,15 @@ public class BedrockLevelReader implements LevelReader, BedrockReaderWriter {
                 while (iterator.hasNext()) {
                     Map.Entry<byte[], byte[]> entry = iterator.next();
                     byte[] key = entry.getKey();
-                    if (!isColumnKey(key)) continue;
+                    if (!LevelDBKey.isColumnKey(key)) continue;
 
-                    int x = readLittleEndianInt(key, 0);
-                    int z = readLittleEndianInt(key, 4);
+                    int x = LevelDBKey.readLittleEndianInt(key, 0);
+                    int z = LevelDBKey.readLittleEndianInt(key, 4);
 
                     // Read dimension
                     Dimension dimension = Dimension.OVERWORLD;
                     if (key.length >= 13) {
-                        int dimensionID = readLittleEndianInt(key, 8);
+                        int dimensionID = LevelDBKey.readLittleEndianInt(key, 8);
                         dimension = dimensionRegistry.fromBedrock(dimensionID, null);
 
                         // Non-chunk string keys can share a chunk-key length. Unknown dimensions are not usable here.
@@ -460,12 +459,7 @@ public class BedrockLevelReader implements LevelReader, BedrockReaderWriter {
                         String suffix = LevelDBKey.extractSuffix(entry.getKey(), LevelDBKey.MAP_PREFIX);
                         long mapID = Long.parseLong(suffix);
 
-                        // The payload loader outlives this iterator entry, so retain our own stable key bytes.
-                        byte[] key = entry.getKey().clone();
-                        byte[] value = entry.getValue();
-
-                        // Parse metadata now, but defer the 64 KiB pixel payload until the output writer needs it.
-                        tasks.add(Task.async("Parsing map", TaskWeight.NORMAL, () -> parseMap(mapID, key, value)));
+                        tasks.add(Task.async("Parsing map", TaskWeight.NORMAL, () -> parseMap(mapID, entry.getValue())));
                     } catch (Exception e) {
                         converter.logNonFatalException(e);
                     }
@@ -492,12 +486,11 @@ public class BedrockLevelReader implements LevelReader, BedrockReaderWriter {
      * Parse a map from the ID and NBT encoded data.
      *
      * @param id   the ID of a map.
-     * @param key  the LevelDB key used to reload the large payload on demand.
      * @param data the NBT as a byte array.
      * @return a parsed map otherwise null if it failed to parse.
      */
     @Nullable
-    protected ChunkerMap parseMap(long id, byte[] key, byte[] data) {
+    protected ChunkerMap parseMap(long id, byte[] data) {
         try {
             // Read the data
             CompoundTag mapCompound = Objects.requireNonNull(Tag.readBedrockNBT(data));
@@ -516,51 +509,14 @@ public class BedrockLevelReader implements LevelReader, BedrockReaderWriter {
                     mapCompound.getInt("zCenter", 0),
                     mapCompound.getByte("unlimitedTracking", (byte) 0) != 0,
                     mapCompound.getByte("mapLocked", (byte) 0) != 0,
-                    () -> loadMapPayload(key)
+                    mapCompound.getByteArray("colors", null),
+                    resolvers.converter().shouldAllowNBTCopying() ? mapCompound : null
             );
 
         } catch (Exception e) {
             converter.logNonFatalException(e);
             return null;
         }
-    }
-
-    private ChunkerMap.Payload loadMapPayload(byte[] key) throws IOException {
-        byte[] data = database.get(key);
-        if (data == null) return new ChunkerMap.Payload(null, null);
-
-        CompoundTag mapCompound = Objects.requireNonNull(Tag.readBedrockNBT(data));
-        return new ChunkerMap.Payload(
-                mapCompound.getByteArray("colors", null),
-                resolvers.converter().shouldAllowNBTCopying() ? mapCompound : null
-        );
-    }
-
-    static boolean isColumnKey(byte[] key) {
-        int length = key.length;
-        if (length != 9 && length != 10 && length != 13 && length != 14) return false;
-        if (LevelDBKey.startsWith(key, LevelDBKey.MAP_PREFIX)
-                || LevelDBKey.startsWith(key, LevelDBKey.ACTOR_PREFIX)
-                || LevelDBKey.startsWith(key, LevelDBKey.DIGP_PREFIX)
-                || Arrays.equals(key, LevelDBKey.LOCAL_PLAYER)) {
-            return false;
-        }
-
-        boolean subChunk = length == 10 || length == 14;
-        byte type = key[subChunk ? length - 2 : length - 1];
-        if (subChunk) return type == LevelDBChunkType.SUB_CHUNK_PREFIX.getId();
-
-        return type == LevelDBChunkType.DATA_2D.getId()
-                || type == LevelDBChunkType.DATA_3D.getId()
-                || type == LevelDBChunkType.ENTITY.getId()
-                || type == LevelDBChunkType.BLOCK_ENTITY.getId();
-    }
-
-    private static int readLittleEndianInt(byte[] input, int offset) {
-        return (input[offset] & 0xFF)
-                | (input[offset + 1] & 0xFF) << 8
-                | (input[offset + 2] & 0xFF) << 16
-                | input[offset + 3] << 24;
     }
 
     /**
